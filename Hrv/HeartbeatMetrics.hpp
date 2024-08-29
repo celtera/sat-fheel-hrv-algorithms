@@ -60,6 +60,9 @@ public:
     {
       float peak{};
       float average{};
+      float variance{};
+      float stddev{};
+      float rms{};
     } stats;
   };
 
@@ -106,12 +109,13 @@ public:
     auto window = std::chrono::milliseconds(inputs.window.value);
     for(auto& [name, hb] : beats)
     {
-      hb.stats = computeMetrics(hb.data, window);
+      hb.stats = computeIndividualMetrics(hb.data, window);
     }
+    computeGroupMetrics();
   }
 
-  heartbeats::statistics
-  computeMetrics(boost::circular_buffer<bpm>& hb, std::chrono::milliseconds window)
+  heartbeats::statistics computeIndividualMetrics(
+      boost::circular_buffer<bpm>& hb, std::chrono::milliseconds window)
   {
     heartbeats::statistics stats;
 
@@ -126,10 +130,26 @@ public:
         n++;
       }
     }
-    if(n > 0)
-      stats.average /= n;
+    if(n == 0)
+      return {};
+
+    stats.average /= n;
+
+    for(auto& [t, bpm] : hb)
+    {
+      if((this->m_last_point_timestamp - t) < window)
+      {
+        stats.variance += std::pow(bpm - stats.average, 2.f);
+      }
+    }
+
+    stats.variance /= n;
+    stats.stddev = std::sqrt(stats.variance);
+
     return stats;
   }
+
+  void computeGroupMetrics() { }
 
   std::map<std::string, heartbeats> beats;
 };
