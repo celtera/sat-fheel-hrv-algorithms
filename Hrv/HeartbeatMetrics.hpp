@@ -2,6 +2,8 @@
 
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 
+#include <boost/circular_buffer.hpp>
+
 #include <DataFrame/DataFrame.h>
 #include <DataFrame/DataFrameFinancialVisitors.h>
 #include <DataFrame/DataFrameMLVisitors.h>
@@ -10,7 +12,6 @@
 #include <halp/callback.hpp>
 #include <halp/controls.hpp>
 #include <halp/meta.hpp>
-
 namespace fheel
 {
 class HeartbeatMetrics
@@ -23,13 +24,12 @@ public:
   halp_meta(description, "Heartbeat metrics")
   halp_meta(uuid, "20bdd7bf-716d-497e-86b3-34c6b2bd50e1")
 
-  // We need multiple inputs as
   struct
   {
     struct
     {
       halp_meta(name, "Input")
-      std::vector<std::pair<std::string, int>> value;
+      std::pair<std::string, int> value;
       void update(HeartbeatMetrics& self) { self.addRow(); }
     } heartbeats;
 
@@ -37,7 +37,7 @@ public:
     halp::hslider_f32<"Baseline", halp::range{20., 120., 74.}> baseline;
 
     // Time window upopn which the analysis is performed
-    halp::hslider_f32<"Window", halp::range{0., 10000., 1000.}> window;
+    halp::hslider_i32<"Window", halp::irange{1, 10000, 1000}> window;
 
   } inputs;
 
@@ -50,30 +50,87 @@ public:
 
   void operator()() { }
 
-  std::chrono::steady_clock::time_point m_last_point_timestamp;
+  using clk = std::chrono::steady_clock;
+  using timestamp = clk::time_point;
+  using bpm = std::pair<timestamp, int>;
+  struct heartbeats
+  {
+    boost::circular_buffer<bpm> data;
+    struct statistics
+    {
+      float peak{};
+      float average{};
+    } stats;
+  };
 
-  hmdf::StdDataFrame<unsigned long> ul_df1;
+  timestamp m_last_point_timestamp;
 
-  std::map<std::string, int> id_to_index;
+  static constexpr auto default_capacity = 1000;
+  static constexpr auto default_duration = std::chrono::seconds(10);
 
   int current_frame_index = 1;
   int current_sensor_index = 1;
 
   void addRow()
   {
-    m_last_point_timestamp = std::chrono::steady_clock::now();
-    for(const auto& [name, bpm] : inputs.heartbeats.value)
+    m_last_point_timestamp = clk::now();
+    const auto& [name, bpm] = inputs.heartbeats.value;
+    auto& vec = beats[name].data;
+    if(vec.empty())
+      vec.resize(default_capacity);
+    vec.push_back({m_last_point_timestamp, bpm});
+  }
+
+  void cleanupOldTimestamps()
+  {
+    for(auto& [name, hb] : beats)
     {
-      if(ul_df1.append_row(0))
+      auto& buffer = hb.data;
+      for(auto it = buffer.begin(); it != buffer.end();)
       {
-        //nan_policy::dont_pad_with_nans);
+        auto& [ts, val] = *it;
+        if(m_last_point_timestamp - ts > default_duration)
+        {
+          it = buffer.erase(it);
+        }
+        else
+        {
+          break;
+        }
       }
     }
   }
-  HeartbeatMetrics()
+
+  void computeMetrics()
   {
-    std::vector<unsigned long> idx_col1;
-    ul_df1.load_index(std::move(idx_col1));
+    auto window = std::chrono::milliseconds(inputs.window.value);
+    for(auto& [name, hb] : beats)
+    {
+      hb.stats = computeMetrics(hb.data, window);
+    }
   }
+
+  heartbeats::statistics
+  computeMetrics(boost::circular_buffer<bpm>& hb, std::chrono::milliseconds window)
+  {
+    heartbeats::statistics stats;
+
+    int n = 0;
+    for(auto& [t, bpm] : hb)
+    {
+      if((this->m_last_point_timestamp - t) < window)
+      {
+        float beats = bpm;
+        stats.average += beats;
+        stats.peak = std::max(stats.peak, beats);
+        n++;
+      }
+    }
+    if(n > 0)
+      stats.average /= n;
+    return stats;
+  }
+
+  std::map<std::string, heartbeats> beats;
 };
 }
