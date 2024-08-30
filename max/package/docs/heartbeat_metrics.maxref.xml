@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<?xml-stylesheet href="./_c74_ref.xsl" type="text/xsl"?>
+
+<c74object
+module="heartbeat_metrics" category="Mappings"   >
+
+  <digest>Heartbeat metrics</digest>
+  <description>Heartbeat metrics</description>
+
+  <metadatalist>
+
+  </metadatalist>
+
+  <inletlist>
+    <inlet id="1" name="Baseline" type="float">
+      <digest>Heart-rate baseline in bpm</digest>
+      <description>Heart-rate baseline in bpm</description>
+    </inlet>
+    <inlet id="2" name="Ceil" type="float">
+      <digest>Heart-rate peak ceil</digest>
+      <description>Heart-rate peak ceil</description>
+    </inlet>
+    <inlet id="3" name="Window" type="long">
+      <digest>Time window in ms upon which the analysis is performed</digest>
+      <description>Time window in ms upon which the analysis is performed</description>
+    </inlet>
+    <inlet id="4" name="Stddev Range" type="float">
+      <digest>Std deviation range</digest>
+      <description>Std deviation range</description>
+    </inlet>
+  </inletlist>
+
+  <outletlist>
+    <outlet id="1" name="Excitation" type="atom">
+      <digest>Excitation values for the last participant</digest>
+      <description>Excitation values for the last participant</description>
+    </outlet>
+    <outlet id="2" name="Synchronization" type="atom">
+      <digest>Global synchronization metrics</digest>
+      <description>Global synchronization metrics</description>
+    </outlet>
+  </outletlist>
+
+  <methodlist>
+    <method name="input">
+      <arglist>
+        <arg name="argument 1" type="atom" optional="1"/>
+        <arg name="argument 2" type="symbol" optional="1"/>
+        <arg name="argument 3" type="long" optional="1"/>
+      </arglist>
+      <digest></digest>
+      <description></description>
+    </method>
+    <method name="start">
+      <arglist>
+        <arg name="argument 1" type="atom" optional="1"/>
+      </arglist>
+      <digest></digest>
+      <description></description>
+    </method>
+    <method name="stop">
+      <arglist>
+        <arg name="argument 1" type="atom" optional="1"/>
+      </arglist>
+      <digest></digest>
+      <description></description>
+    </method>
+  </methodlist>
+
+  <attributelist>
+  </attributelist>
+
+  <seealsolist>
+  </seealsolist>
+</c74object>

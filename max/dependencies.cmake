@@ -67,3 +67,5 @@ FetchContent_Populate(avendish)
 
 set(CMAKE_PREFIX_PATH "${avendish_SOURCE_DIR};${CMAKE_PREFIX_PATH}")
 find_package(Avendish REQUIRED)
+
+# cmake -S max -B /tmp/build -GNinja -DAVENDISH_EXTERNAL_SOURCE_DIR=/Users/jcelerier/ossia/score/3rdparty/avendish  -DCMAKE_INSTALL_PREFIX=/tmp/inst
