@@ -33,7 +33,7 @@ public:
     struct
     {
       halp_meta(name, "Input")
-      void operator()(HeartbeatMetrics& self, const std::string& name, int bpm)
+      void operator()(HeartbeatMetrics& self, std::string name, int bpm)
       {
         if(name.starts_with('/'))
           self.addRow(name, bpm);

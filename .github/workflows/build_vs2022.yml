@@ -1,0 +1,67 @@
+name: VS2022 build
+
+on: push
+
+jobs:
+  build:
+    name: VS2022
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout dependencies
+        uses: actions/checkout@v4
+        with:
+          repository: ossia/score
+          submodules: "recursive"
+          path: score
+
+      - name: Checkout Max SDK
+        uses: actions/checkout@v4
+        with:
+          repository: jcelerier/max-sdk-base
+          submodules: "recursive"
+          path: max-sdk-base
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          ${{ matrix.config.dependencies }}
+
+      - name: Download SDK
+        shell: bash
+        run: |
+          curl -L https://raw.githubusercontent.com/ossia/score/master/tools/fetch-sdk.sh > fetch-sdk.sh
+          chmod +x ./fetch-sdk.sh
+          ./fetch-sdk.sh
+
+      - name: Checkout Leap SDK
+        uses: actions/checkout@v4
+        with:
+          repository: celtera/LeapSDK
+          submodules: "recursive"
+          path: LeapSDK
+          token: ${{ secrets.GIT_CLONE_TOKEN }}
+
+      - name: Build debug
+        shell: bash
+        run: |
+          export BUILD_DIR=build-debug
+
+          cmake -S $PWD -B $BUILD_DIR \
+            -G "Visual Studio 17 2022" \
+            -DLEAPSDK_PATH="$PWD/LeapSDK"
+
+          cmake --build $BUILD_DIR --config Debug
+
+      - name: Build release
+        shell: bash
+        run: |
+          export BUILD_DIR=build-release
+
+          cmake -S $PWD -B $BUILD_DIR \
+            -G "Visual Studio 17 2022" \
+            -DLEAPSDK_PATH="$PWD/LeapSDK"
+
+          cmake --build $BUILD_DIR --config Release
