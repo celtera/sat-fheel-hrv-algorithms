@@ -12,7 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
-#include <map>
+#include <unordered_map>
 #include <vector>
 
 namespace fheel
@@ -27,19 +27,21 @@ public:
   halp_meta(description, "Heartbeat metrics")
   halp_meta(uuid, "20bdd7bf-716d-497e-86b3-34c6b2bd50e1")
 
-  struct
+  struct messages
   {
+
     struct
     {
       halp_meta(name, "Input")
-      std::pair<std::string, int> value;
-      void update(HeartbeatMetrics& self)
+      void operator()(HeartbeatMetrics& self, const std::string& name, int bpm)
       {
-        if(!value.first.empty())
-          self.addRow();
+        if(name.starts_with('/'))
+          self.addRow(name, bpm);
       }
     } heartbeats;
-
+  };
+  struct
+  {
     // Heart-rate baseline
     halp::hslider_f32<"Baseline", halp::range{20., 200., 74.}> baseline;
 
@@ -79,12 +81,15 @@ public:
 
   void operator()() { }
 
+  static constexpr auto default_capacity = 1000;
+  static constexpr auto default_duration = std::chrono::seconds(10);
+
   using clk = std::chrono::steady_clock;
   using timestamp = clk::time_point;
   using bpm = std::pair<timestamp, int>;
   struct heartbeats
   {
-    boost::circular_buffer<bpm> data;
+    boost::circular_buffer<bpm> data = boost::circular_buffer<bpm>(default_capacity);
     struct statistics
     {
       std::vector<float> bpms;
@@ -99,17 +104,18 @@ public:
 
   timestamp m_last_point_timestamp;
 
-  static constexpr auto default_capacity = 1000;
-  static constexpr auto default_duration = std::chrono::seconds(10);
-
   int current_frame_index = 1;
   int current_sensor_index = 1;
 
-  void addRow()
+  void addRow(std::string_view name, int bpm)
   {
     m_last_point_timestamp = clk::now();
-    const auto& [name, bpm] = inputs.heartbeats.value;
-    auto& vec = beats[name].data;
+    auto it = beats.find(name);
+    if(it == beats.end())
+    {
+      it = beats.emplace(std::string{name}, heartbeats{}).first;
+    }
+    auto& vec = it->second.data;
     if(vec.empty())
       vec.resize(default_capacity);
     vec.push_back({m_last_point_timestamp, bpm});
@@ -255,6 +261,25 @@ public:
     outputs.synchronization.value.coeff_variation = stddev / avg;
   }
 
-  std::map<std::string, heartbeats> beats;
+  struct string_hash
+  {
+    using hash_type = std::hash<std::string_view>;
+    using is_transparent = void;
+
+    std::size_t operator()(const char* str) const { return hash_type{}(str); }
+    std::size_t operator()(std::string_view str) const { return hash_type{}(str); }
+    std::size_t operator()(std::string const& str) const { return hash_type{}(str); }
+  };
+  struct string_equal
+  {
+    using is_transparent = std::true_type;
+
+    bool operator()(std::string_view l, std::string_view r) const noexcept
+    {
+      return l == r;
+    }
+  };
+
+  std::unordered_map<std::string, heartbeats, string_hash, string_equal> beats;
 };
 }
