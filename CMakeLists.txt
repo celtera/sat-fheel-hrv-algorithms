@@ -37,4 +37,5 @@ avnd_score_plugin_finalize(
   PLUGIN_UUID "9d9576a9-bbd2-42de-90b0-c6e2c6469f42"
 )
 
+target_sources(score_addon_hrv PRIVATE Hrv/armpd.cc)
 target_link_libraries(score_addon_hrv PRIVATE DataFrame)
