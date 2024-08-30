@@ -1,0 +1,171 @@
+name: CMake build
+
+on: push
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  MAC_CODESIGN_EMAIL: ${{ secrets.MAC_CODESIGN_EMAIL }}
+  MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
+  MAC_CODESIGN_KEYCHAIN: "/Users/runner/travis.keychain"
+  MAC_CODESIGN_KEYCHAIN_PASSWORD: "travis"
+  MAC_CODESIGN_PASSWORD: ${{ secrets.MAC_CODESIGN_PASSWORD }}
+  MAC_CODESIGN_TEAM: ${{ secrets.MAC_CODESIGN_TEAM }}
+  MAC_CODESIGN_FILE_B64: ${{ secrets.MAC_CODESIGN_FILE_B64 }}
+  MAC_NOTARIZE_PASSWORD: ${{ secrets.MAC_NOTARIZE_PASSWORD }}
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {
+              name: "Windows",
+              os: windows-latest,
+              triple: "windows-clang-x86_64",
+              path: "/c/ossia-sdk/llvm/bin",
+              common_flags: "-GNinja \
+                             -DCMAKE_C_COMPILER=c:/ossia-sdk/llvm/bin/clang.exe \
+                             -DCMAKE_CXX_COMPILER=c:/ossia-sdk/llvm/bin/clang++.exe \
+                             -DCMAKE_EXE_LINKER_FLAGS=\"-fuse-ld=c:/ossia-sdk/llvm/bin/ld.lld.exe --target=x86_64-windows-gnu\" \
+                             -DCMAKE_SHARED_LINKER_FLAGS=\"-fuse-ld=c:/ossia-sdk/llvm/bin/ld.lld.exe --target=x86_64-windows-gnu\" \
+                             -DCMAKE_MODULE_LINKER_FLAGS=\"-fuse-ld=c:/ossia-sdk/llvm/bin/ld.lld.exe --target=x86_64-windows-gnu\" ",
+              debug_flags: "-DCMAKE_BUILD_TYPE=Debug",
+              release_flags: "-DCMAKE_BUILD_TYPE=Release",
+              build_flags: "",
+              dependencies: "choco install -y ninja",
+              sdk: "/c/ossia-sdk"
+            }
+          - {
+              name: "macOS",
+              os: macos-13,
+              triple: "macos-clang-x86_64",
+              common_flags: "",
+              debug_flags: "-DCMAKE_BUILD_TYPE=Debug",
+              release_flags: "-DCMAKE_BUILD_TYPE=Release",
+              build_flags: "",
+              sdk: "/opt/ossia-sdk-x86_64"
+            }
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        if: runner.os == 'macOS'
+        with:
+          xcode-version: latest-stable
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          ${{ matrix.config.dependencies }}
+
+      - name: Download SDK
+        shell: bash
+        if: runner.os == 'Windows'
+        run: |
+          curl -L https://raw.githubusercontent.com/ossia/score/master/tools/fetch-sdk.sh > fetch-sdk.sh
+          chmod +x ./fetch-sdk.sh
+          ./fetch-sdk.sh
+  
+      - name: Setup Codesigning
+        shell: bash
+        if: runner.os == 'macOS'
+        run: |
+          set +x
+
+          security create-keychain -p "$MAC_CODESIGN_KEYCHAIN_PASSWORD" "$MAC_CODESIGN_KEYCHAIN"          
+          security default-keychain -s "$MAC_CODESIGN_KEYCHAIN"
+          security unlock-keychain -p "$MAC_CODESIGN_KEYCHAIN_PASSWORD" "$MAC_CODESIGN_KEYCHAIN"
+      
+          echo $MAC_CODESIGN_FILE_B64 | base64 --decode > "$HOME/cert.p12"
+          security import "$HOME/cert.p12" -k "$MAC_CODESIGN_KEYCHAIN" -P "$MAC_CODESIGN_PASSWORD" -T /usr/bin/codesign  > /dev/null 2>&1
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$MAC_CODESIGN_KEYCHAIN_PASSWORD" "$MAC_CODESIGN_KEYCHAIN" > /dev/null 2>&1
+      
+          rm -rf "$HOME/cert.p12"
+
+      - name: Build debug
+        shell: bash
+        run: |
+          export BUILD_DIR=build-debug
+          if [[ "${{ matrix.config.path }}" != "" ]]; then
+            export PATH=${{ matrix.config.path }}:$PATH
+          fi
+
+          cmake -S $PWD/max -B $BUILD_DIR \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
+            -DCMAKE_CXX_STANDARD=20 \
+            ${{ matrix.config.common_flags }} \
+            ${{ matrix.config.debug_flags }}
+
+          cmake --build $BUILD_DIR -- ${{ matrix.config.build_flags }}
+
+      - name: Build release
+        shell: bash
+        run: |
+          export BUILD_DIR=build-release
+          export INSTALL_DIR="$PWD/install"
+          mkdir -p "$INSTALL_DIR"
+
+          if [[ "${{ matrix.config.path }}" != "" ]]; then
+            export PATH=${{ matrix.config.path }}:$PATH
+          fi
+
+          cmake -S $PWD/max -B $BUILD_DIR \
+            -DCMAKE_BUILD_WITH_INSTALL_RPATH=1 \
+            -DMAX_PACKAGE_FOLDER="$PWD/Heartbeat" \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
+            -DCMAKE_CXX_STANDARD=20 \
+            ${{ matrix.config.common_flags }} \
+            ${{ matrix.config.release_flags }}
+
+          cmake --build $BUILD_DIR -- ${{ matrix.config.build_flags }}
+
+          cmake -E tar cf "$PWD/Heartbeat-${{ matrix.config.triple }}.zip" --format=zip -- "$PWD/Heartbeat"
+
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.config.triple }}
+          path: Heartbeat-${{ matrix.config.triple }}.zip
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download all workflow run artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Combine
+        shell: bash
+        run: |
+        
+          mkdir -p output
+          find . -name '*.zip' -exec mv {} output/ \;
+          cd output
+          for file in *.zip; do
+            unzip -o $file
+          done
+          ls
+          rm *.zip
+
+          zip -r Heartbeat-max.zip Heartbeat
+          rm -rf Heartbeat
+
+      - name: Upload 
+        uses: xresloader/upload-to-github-release@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          file: "output/*"
+          branches: "main"
+          verbose: true
+          prerelease: true
+          tag_name: "continuous"
+          default_release_name: "Continuous build"
