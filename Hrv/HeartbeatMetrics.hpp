@@ -29,30 +29,40 @@ public:
 
   struct messages
   {
-
     struct
     {
-      halp_meta(name, "Input")
+      halp_meta(name, "input")
       void operator()(HeartbeatMetrics& self, std::string name, int bpm)
       {
-        if(name.starts_with('/'))
-          self.addRow(name, bpm);
+        self.addRow(name, bpm);
       }
     } heartbeats;
   };
   struct
   {
-    // Heart-rate baseline
-    halp::hslider_f32<"Baseline", halp::range{20., 200., 74.}> baseline;
+    struct : halp::hslider_f32<"Baseline", halp::range{20., 200., 74.}> {
+      halp_meta(c_name, "baseline")
+      halp_meta(description, "Heart-rate baseline in bpm")
+      halp_flag(class_attribute);
+    } baseline;
 
-    // Heart-rate peak ceil
-    halp::hslider_f32<"Ceil", halp::range{1., 4., 1.25}> ceil;
+    struct : halp::hslider_f32<"Ceil", halp::range{1., 4., 1.25}> {
+      halp_meta(c_name, "ceil")
+      halp_meta(description, "Heart-rate peak ceil")
+      halp_flag(class_attribute);
+    } ceil;
 
-    // Time window in ms upon which the analysis is performed
-    halp::hslider_i32<"Window", halp::irange{1, 10000, 1000}> window;
+    struct : halp::hslider_i32<"Window", halp::irange{1, 10000, 1000}> {
+      halp_meta(c_name, "window")
+      halp_meta(description, "Time window in ms upon which the analysis is performed")
+      halp_flag(class_attribute);
+    } window;
 
-    // Std deviation range
-    halp::hslider_f32<"Stddev Range", halp::range{0.1, 5, 3}> stddev;
+    struct : halp::hslider_f32<"Stddev Range", halp::range{0.1, 5, 3}> {
+      halp_meta(c_name, "stddev_range")
+      halp_meta(description, "Std deviation range")
+      halp_flag(class_attribute);
+    } stddev;
 
   } inputs;
 
@@ -75,8 +85,12 @@ public:
 
   struct
   {
-    halp::val_port<"Excitation", std::vector<excitation>> excitation;
-    halp::val_port<"Synchronization", synchronization> synchronization;
+    struct : halp::val_port<"Excitation", std::vector<excitation>> { 
+      halp_meta(description, "Array of excitation values for individual participants")
+    } excitation;
+    struct : halp::val_port<"Synchronization", synchronization> { 
+      halp_meta(description, "Global synchronization metrics")
+    } synchronization;
   } outputs;
 
   void operator()() { }
