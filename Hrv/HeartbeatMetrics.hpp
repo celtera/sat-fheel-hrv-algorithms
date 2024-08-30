@@ -8,6 +8,7 @@
 #include <halp/controls.hpp>
 #include <halp/meta.hpp>
 
+#include<ext.h>
 #include <cmath>
 
 #include <algorithm>
@@ -32,8 +33,12 @@ public:
     struct
     {
       halp_meta(name, "input")
+      halp_flag(process_any_message);
       void operator()(HeartbeatMetrics& self, std::string name, int bpm)
       {
+        #if defined(AVND_MAXMSP)
+        post("?? %s %d", name.c_str(), bpm);
+        #endif
         self.addRow(name, bpm);
       }
     } heartbeats;
@@ -85,10 +90,12 @@ public:
 
   struct
   {
-    struct : halp::val_port<"Excitation", std::vector<excitation>> { 
+    struct : halp::callback<"Excitation", std::vector<excitation>>
+    {
       halp_meta(description, "Array of excitation values for individual participants")
     } excitation;
-    struct : halp::val_port<"Synchronization", synchronization> { 
+    struct : halp::callback<"Synchronization", synchronization>
+    {
       halp_meta(description, "Global synchronization metrics")
     } synchronization;
   } outputs;
@@ -159,14 +166,14 @@ public:
 
   void computeMetrics()
   {
-    outputs.excitation.value.clear();
+    std::vector<excitation> exc;
     auto window = std::chrono::milliseconds(inputs.window.value);
     for(auto& [name, hb] : beats)
     {
       computeIndividualMetrics(hb, window);
       if(hb.stats.count > 1)
       {
-        outputs.excitation.value.push_back({
+        exc.push_back({
             .name = name,
             .peak = hb.stats.peak,
             .average = hb.stats.average,
@@ -176,6 +183,7 @@ public:
         });
       }
     }
+    this->outputs.excitation(std::move(exc));
   }
 
   void computeIndividualMetrics(heartbeats& hb, std::chrono::milliseconds window)
@@ -233,6 +241,7 @@ public:
 
   void computeGroupMetrics()
   {
+    synchronization sync{};
     // Method 1. Cross-correlation
     // TODO
 
@@ -269,10 +278,12 @@ public:
         }
       }
     }
-    outputs.synchronization.value.deviation = float(pop_within_stddev) / float(pop);
+    sync.deviation = float(pop_within_stddev) / float(pop);
 
     // Method 3. Coefficient of variation
-    outputs.synchronization.value.coeff_variation = stddev / avg;
+    sync.coeff_variation = stddev / avg;
+
+    outputs.synchronization(sync);
   }
 
   struct string_hash
