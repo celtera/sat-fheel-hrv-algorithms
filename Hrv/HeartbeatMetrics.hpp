@@ -33,7 +33,11 @@ public:
     {
       halp_meta(name, "Input")
       std::pair<std::string, int> value;
-      void update(HeartbeatMetrics& self) { self.addRow(); }
+      void update(HeartbeatMetrics& self)
+      {
+        if(!value.first.empty())
+          self.addRow();
+      }
     } heartbeats;
 
     // Heart-rate baseline
@@ -42,7 +46,7 @@ public:
     // Heart-rate peak ceil
     halp::hslider_f32<"Ceil", halp::range{1., 4., 1.25}> ceil;
 
-    // Time window upon which the analysis is performed
+    // Time window in ms upon which the analysis is performed
     halp::hslider_i32<"Window", halp::irange{1, 10000, 1000}> window;
 
     // Std deviation range
@@ -50,14 +54,27 @@ public:
 
   } inputs;
 
+  struct excitation
+  {
+    std::string name;
+    float peak{};
+    float average{};
+    float variance{};
+    float stddev{};
+    float rmssd{};
+  };
+
+  struct synchronization
+  {
+    float correlation;
+    float deviation;
+    float coeff_variation;
+  };
+
   struct
   {
-    halp::val_port<"Peak", std::vector<std::pair<std::string, float>>> peak;
-    halp::val_port<"Average", std::vector<std::pair<std::string, float>>> average;
-    halp::val_port<"RMSSD", std::vector<std::pair<std::string, float>>> rmssd;
-    halp::val_port<"Correlation", float> correlation;
-    halp::val_port<"Stddev ratio", float> stddev_ratio;
-    halp::val_port<"Var coeff", float> var_coeff;
+    halp::val_port<"Excitation", std::vector<excitation>> excitation;
+    halp::val_port<"Synchronization", synchronization> synchronization;
   } outputs;
 
   void operator()() { }
@@ -96,6 +113,8 @@ public:
     if(vec.empty())
       vec.resize(default_capacity);
     vec.push_back({m_last_point_timestamp, bpm});
+    computeMetrics();
+    computeGroupMetrics();
   }
 
   void cleanupOldTimestamps()
@@ -120,12 +139,23 @@ public:
 
   void computeMetrics()
   {
+    outputs.excitation.value.clear();
     auto window = std::chrono::milliseconds(inputs.window.value);
     for(auto& [name, hb] : beats)
     {
       computeIndividualMetrics(hb, window);
+      if(hb.stats.count > 1)
+      {
+        outputs.excitation.value.push_back({
+            .name = name,
+            .peak = hb.stats.peak,
+            .average = hb.stats.average,
+            .variance = hb.stats.variance,
+            .stddev = hb.stats.stddev,
+            .rmssd = hb.stats.rmssd,
+        });
+      }
     }
-    computeGroupMetrics();
   }
 
   void computeIndividualMetrics(heartbeats& hb, std::chrono::milliseconds window)
@@ -166,7 +196,6 @@ public:
 
     // Compute rmssd
     // 1. BPM to RR
-#pragma omp simd
     for(float& v : bpm_cache)
       v = 60 * 1000 / v;
 
@@ -185,6 +214,7 @@ public:
   void computeGroupMetrics()
   {
     // Method 1. Cross-correlation
+    // TODO
 
     // Method 2. Standard deviation distance
     // 1. Global mean
@@ -219,9 +249,10 @@ public:
         }
       }
     }
-    outputs.stddev_ratio = float(pop_within_stddev) / float(pop);
+    outputs.synchronization.value.deviation = float(pop_within_stddev) / float(pop);
 
     // Method 3. Coefficient of variation
+    outputs.synchronization.value.coeff_variation = stddev / avg;
   }
 
   std::map<std::string, heartbeats> beats;
