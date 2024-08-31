@@ -187,6 +187,7 @@ private:
   boost::unordered_flat_map<std::string, heartbeats> beats;
 
   // Global accumulators for mean / variance
+  bool is_recording{};
   stat_accum accumulators;
   double global_stddev = 1.;
 };

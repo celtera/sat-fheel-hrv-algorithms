@@ -17,18 +17,23 @@ void HeartbeatMetrics::startRecording()
     std::destroy_at(&hb.accumulators);
     std::construct_at(&hb.accumulators);
   }
+  is_recording = true;
 }
 
 void HeartbeatMetrics::stopRecording()
 {
-  inputs.baseline.value = ba::extract::mean(accumulators);
-  global_stddev = std::sqrt(ba::extract::variance(accumulators));
-
-  for(auto& [name, hb] : this->beats)
+  if(is_recording)
   {
-    hb.average = ba::extract::mean(hb.accumulators);
-    hb.stddev = std::sqrt(ba::extract::variance(hb.accumulators));
+    inputs.baseline.value = ba::extract::mean(accumulators);
+    global_stddev = std::sqrt(ba::extract::variance(accumulators));
+
+    for(auto& [name, hb] : this->beats)
+    {
+      hb.average = ba::extract::mean(hb.accumulators);
+      hb.stddev = std::sqrt(ba::extract::variance(hb.accumulators));
+    }
   }
+  is_recording = false;
 }
 
 void HeartbeatMetrics::addRow(const std::string& name, int bpm)
