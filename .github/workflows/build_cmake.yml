@@ -168,4 +168,5 @@ jobs:
           verbose: true
           prerelease: true
           tag_name: "continuous"
+          overwrite: true
           default_release_name: "Continuous build"
