@@ -3,31 +3,53 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include <boost/circular_buffer.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <halp/callback.hpp>
 #include <halp/controls.hpp>
 #include <halp/meta.hpp>
 
-#include<ext.h>
 #include <cmath>
 
-#include <algorithm>
 #include <chrono>
-#include <unordered_map>
 #include <vector>
 
 namespace fheel
 {
+// Structures de données représentant les statistiques
+// qui nous intéressent, par capteur puis globales
+struct excitation
+{
+  std::string name;
+  float peak{};
+  float average{};
+  float variance{};
+  float stddev{};
+  float rmssd{};
+};
+
+struct synchronization
+{
+  float correlation;
+  float deviation;
+  float coeff_variation;
+};
+
+// Code de l'objet
 class HeartbeatMetrics
 {
 public:
   halp_meta(name, "Heartbeat Metrics")
   halp_meta(c_name, "heartbeat_metrics")
   halp_meta(category, "Mappings")
-  halp_meta(author, "Jean-Michaël Celerier")
+  halp_meta(
+      author,
+      "Jean-Michaël Celerier, Rochana Fardon (Société des Arts Technologiques)\n"
+      "Marion Cossin (CRITAC)\nLéa Dedola")
   halp_meta(description, "Heartbeat metrics")
   halp_meta(uuid, "20bdd7bf-716d-497e-86b3-34c6b2bd50e1")
 
+  // Messages qu'on veut pouvoir traiter depuis Max
   struct messages
   {
     struct
@@ -36,13 +58,24 @@ public:
       halp_flag(process_any_message);
       void operator()(HeartbeatMetrics& self, std::string name, int bpm)
       {
-        #if defined(AVND_MAXMSP)
-        post("?? %s %d", name.c_str(), bpm);
-        #endif
         self.addRow(name, bpm);
       }
     } heartbeats;
+
+    struct
+    {
+      halp_meta(name, "start")
+      void operator()(HeartbeatMetrics& self) { self.startRecording(); }
+    } start;
+
+    struct
+    {
+      halp_meta(name, "stop")
+      void operator()(HeartbeatMetrics& self) { self.stopRecording(); }
+    } stop;
   };
+
+  // Attributs et autres entrées
   struct
   {
     struct : halp::hslider_f32<"Baseline", halp::range{20., 200., 74.}> {
@@ -68,31 +101,14 @@ public:
       halp_meta(description, "Std deviation range")
       halp_flag(class_attribute);
     } stddev;
-
   } inputs;
 
-  struct excitation
-  {
-    std::string name;
-    float peak{};
-    float average{};
-    float variance{};
-    float stddev{};
-    float rmssd{};
-  };
-
-  struct synchronization
-  {
-    float correlation;
-    float deviation;
-    float coeff_variation;
-  };
-
+  // Sorties
   struct
   {
-    struct : halp::callback<"Excitation", std::vector<excitation>>
+    struct : halp::callback<"Excitation", excitation>
     {
-      halp_meta(description, "Array of excitation values for individual participants")
+      halp_meta(description, "Excitation values for the last participant")
     } excitation;
     struct : halp::callback<"Synchronization", synchronization>
     {
@@ -100,14 +116,18 @@ public:
     } synchronization;
   } outputs;
 
-  void operator()() { }
-
+  // Combien d'échantillons maximum on veut garder
   static constexpr auto default_capacity = 1000;
+
+  // Quelle durée maximum on veut garder
   static constexpr auto default_duration = std::chrono::seconds(10);
 
+  // Types de données utiles
   using clk = std::chrono::steady_clock;
   using timestamp = clk::time_point;
   using bpm = std::pair<timestamp, int>;
+
+  // Structure de donnée interne pour stocker l'information reçue d'un capteur donné
   struct heartbeats
   {
     boost::circular_buffer<bpm> data = boost::circular_buffer<bpm>(default_capacity);
@@ -123,24 +143,44 @@ public:
     } stats;
   };
 
-  timestamp m_last_point_timestamp;
+  timestamp m_last_point_timestamp{};
 
-  int current_frame_index = 1;
-  int current_sensor_index = 1;
+  void startRecording()
+  {
+    // TODO
+  }
+  void stopRecording()
+  {
+    // TODO
+  }
 
+  // Appelé lorsqu'on reçoit une nouvelle donnée d'un capteur
   void addRow(std::string_view name, int bpm)
   {
     m_last_point_timestamp = clk::now();
+
+    // Recherche du capteur et création d'un nouveau dans notre base de données si on ne l'a pas encore rencontré
     auto it = beats.find(name);
     if(it == beats.end())
     {
       it = beats.emplace(std::string{name}, heartbeats{}).first;
+      it->second.data.resize(default_capacity);
     }
-    auto& vec = it->second.data;
-    if(vec.empty())
-      vec.resize(default_capacity);
+
+    auto& hb = it->second;
+    auto& vec = hb.data;
     vec.push_back({m_last_point_timestamp, bpm});
-    computeMetrics();
+
+    computeIndividualMetrics(hb, std::chrono::milliseconds(inputs.window.value));
+
+    this->outputs.excitation(excitation{
+        .name = it->first,
+        .peak = hb.stats.peak,
+        .average = hb.stats.average,
+        .variance = hb.stats.variance,
+        .stddev = hb.stats.stddev,
+        .rmssd = hb.stats.rmssd,
+    });
     computeGroupMetrics();
   }
 
@@ -164,34 +204,17 @@ public:
     }
   }
 
-  void computeMetrics()
-  {
-    std::vector<excitation> exc;
-    auto window = std::chrono::milliseconds(inputs.window.value);
-    for(auto& [name, hb] : beats)
-    {
-      computeIndividualMetrics(hb, window);
-      if(hb.stats.count > 1)
-      {
-        exc.push_back({
-            .name = name,
-            .peak = hb.stats.peak,
-            .average = hb.stats.average,
-            .variance = hb.stats.variance,
-            .stddev = hb.stats.stddev,
-            .rmssd = hb.stats.rmssd,
-        });
-      }
-    }
-    this->outputs.excitation(std::move(exc));
-  }
-
+  // Calcul des métriques d'excitation individuelles
   void computeIndividualMetrics(heartbeats& hb, std::chrono::milliseconds window)
   {
     auto& stats = hb.stats;
     auto& bpm_cache = stats.bpms;
     stats.bpms.clear();
     stats.count = 0;
+    stats.peak = 0.;
+    stats.average = 0.;
+    stats.rmssd = 0.;
+    stats.variance = 0.;
 
     // Compute basic statistics
     for(auto& [t, bpm] : hb.data)
@@ -203,7 +226,9 @@ public:
           const float beats = bpm - inputs.baseline.value;
           bpm_cache.push_back(beats);
           stats.average += beats;
-          stats.peak = std::max(stats.peak, beats);
+
+          if(std::abs(beats) > std::abs(stats.peak))
+            stats.peak = beats;
         }
       }
     }
@@ -223,20 +248,48 @@ public:
     stats.stddev = std::sqrt(stats.variance);
 
     // Compute rmssd
-    // 1. BPM to RR
-    for(float& v : bpm_cache)
-      v = 60 * 1000 / v;
-
-    // 2. From value to interval difference
     stats.rmssd = 0.;
 
 #pragma omp simd
-    // 3. Mean
     for(int i = 0; i < stats.count - 1; i++)
-      stats.rmssd += (std::pow(bpm_cache[i + 1] - bpm_cache[i], 2));
+    {
+      // 1. BPM to RR
+      float v0 = 60. * 1000. / bpm_cache[i];
+      float v1 = 60. * 1000. / bpm_cache[i + 1];
 
-    // 4. RMSSD
+      // 2. Mean
+      stats.rmssd += std::pow(v1 - v0, 2);
+    }
+
+    // 3. RMSSD
     stats.rmssd = std::sqrt(stats.rmssd / (stats.count - 1));
+  }
+
+  void outputIndividualMetrics()
+  {
+#if 0 // If we want to output all the participants at once
+    static thread_local std::vector<excitation> exc;
+    exc.clear();
+    exc.reserve(this->beats.size());
+
+    for(auto& [name, hb] : beats)
+    {
+      if(hb.stats.count > 1)
+      {
+        exc.push_back({
+            .name = name,
+            .peak = hb.stats.peak,
+            .average = hb.stats.average,
+            .variance = hb.stats.variance,
+            .stddev = hb.stats.stddev,
+            .rmssd = hb.stats.rmssd,
+        });
+      }
+    }
+
+    if(!exc.empty())
+      this->outputs.excitation(std::move(exc));
+#endif
   }
 
   void computeGroupMetrics()
@@ -248,22 +301,40 @@ public:
     // Method 2. Standard deviation distance
     // 1. Global mean
     int n = 0;
+    int total_samples = 0;
     float avg = 0.f;
+    float var = 0.f;
     float stddev = 0.f;
+
+    // Global average
     for(auto& [name, b] : beats)
     {
       auto& stats = b.stats;
       if(stats.count <= 1)
         continue;
-      avg += stats.average;
-      stddev += stats.stddev;
+      total_samples += stats.count;
+      avg += stats.average * stats.count;
       n++;
     }
-    if(n == 0)
+
+    if(n == 0 || total_samples == 0)
       return;
 
-    avg /= n;
-    stddev /= n;
+    avg /= total_samples;
+
+    // Global variance
+    for(auto& [name, b] : beats)
+    {
+      auto& stats = b.stats;
+      if(stats.count <= 1)
+        continue;
+      for(float bpm : b.stats.bpms)
+      {
+        var += std::pow(bpm - avg, 2.f);
+      }
+    }
+
+    stddev = std::sqrt(var / n);
 
     int pop = 0;
     int pop_within_stddev = 0;
@@ -272,12 +343,13 @@ public:
       if(hb.stats.count > 1)
       {
         pop++;
-        if(std::abs(hb.stats.average) <= std::abs(inputs.stddev.value * stddev) + avg)
+        if(std::abs(hb.stats.average) <= (std::abs(inputs.stddev.value * stddev) + avg))
         {
           pop_within_stddev++;
         }
       }
     }
+
     sync.deviation = float(pop_within_stddev) / float(pop);
 
     // Method 3. Coefficient of variation
@@ -286,6 +358,7 @@ public:
     outputs.synchronization(sync);
   }
 
+  // Optimisation de la table de hachage pour le stockage
   struct string_hash
   {
     using hash_type = std::hash<std::string_view>;
@@ -305,6 +378,6 @@ public:
     }
   };
 
-  std::unordered_map<std::string, heartbeats, string_hash, string_equal> beats;
+  boost::unordered_flat_map<std::string, heartbeats, string_hash, string_equal> beats;
 };
 }
