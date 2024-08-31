@@ -2,6 +2,9 @@
 
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 
+#include <boost/accumulators/statistics.hpp>
+#include <boost/accumulators/statistics/rolling_mean.hpp>
+#include <boost/accumulators/statistics/rolling_variance.hpp>
 #include <boost/circular_buffer.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
@@ -13,7 +16,7 @@
 
 #include <chrono>
 #include <vector>
-
+namespace ba = boost::accumulators;
 namespace fheel
 {
 // Structures de données représentant les statistiques
@@ -62,11 +65,16 @@ public:
   using timestamp = clk::time_point;
   using bpm = std::pair<timestamp, int>;
 
+  using stat_accum
+      = ba::accumulator_set<float, ba::stats<ba::tag::mean, ba::tag::variance>>;
+
   // Structure de donnée interne pour stocker l'information reçue d'un capteur donné
   struct heartbeats
   {
     boost::circular_buffer<bpm> data = boost::circular_buffer<bpm>(default_capacity);
-    struct statistics
+
+    // Statistics for the current window of time (e.g. the last 5 seconds)
+    struct running_statistics
     {
       std::vector<float> bpms;
       int count{};
@@ -77,6 +85,12 @@ public:
       float stddev{};
       float rmssd{};
     } stats;
+
+    // Global statistics from the recording feature
+    stat_accum accumulators;
+
+    float average{};
+    float stddev{};
   };
 
   // Messages qu'on veut pouvoir traiter depuis Max
@@ -91,46 +105,53 @@ public:
         self.addRow(name, bpm);
       }
     } heartbeats;
-
-    struct
-    {
-      halp_meta(name, "start")
-      void operator()(HeartbeatMetrics& self) { self.startRecording(); }
-    } start;
-
-    struct
-    {
-      halp_meta(name, "stop")
-      void operator()(HeartbeatMetrics& self) { self.stopRecording(); }
-    } stop;
   };
 
   // Attributs et autres entrées
   struct
   {
-    struct : halp::hslider_f32<"Baseline", halp::range{20., 200., 74.}> {
+    struct : halp::hslider_f32<"Baseline", halp::range{20., 200., 74.}>
+    {
       halp_meta(c_name, "baseline")
       halp_meta(description, "Heart-rate baseline in bpm")
       halp_flag(class_attribute);
     } baseline;
 
-    struct : halp::hslider_f32<"Ceil", halp::range{1., 4., 1.25}> {
+    struct : halp::hslider_f32<"Ceil", halp::range{1., 4., 1.25}>
+    {
       halp_meta(c_name, "ceil")
       halp_meta(description, "Heart-rate peak ceil")
       halp_flag(class_attribute);
     } ceil;
 
-    struct : halp::hslider_i32<"Window", halp::irange{1, 10000, 1000}> {
+    struct : halp::hslider_i32<"Window", halp::irange{1, 10000, 1000}>
+    {
       halp_meta(c_name, "window")
       halp_meta(description, "Time window in ms upon which the analysis is performed")
       halp_flag(class_attribute);
     } window;
 
-    struct : halp::hslider_f32<"Stddev Range", halp::range{0.1, 5, 3}> {
+    struct : halp::hslider_f32<"Stddev Range", halp::range{0.1, 5, 3}>
+    {
       halp_meta(c_name, "stddev_range")
       halp_meta(description, "Std deviation range")
       halp_flag(class_attribute);
     } stddev;
+
+    struct : halp::val_port<"Recording", bool>
+    {
+      halp_meta(c_name, "recording")
+      halp_meta(description, "Data will be recorded when this is enabled.")
+      halp_flag(class_attribute);
+
+      void update(HeartbeatMetrics& self)
+      {
+        if(value)
+          self.startRecording();
+        else
+          self.stopRecording();
+      }
+    } recording;
   } inputs;
 
   // Sorties
@@ -164,5 +185,9 @@ public:
 private:
   timestamp m_last_point_timestamp{};
   boost::unordered_flat_map<std::string, heartbeats> beats;
+
+  // Global accumulators for mean / variance
+  stat_accum accumulators;
+  double global_stddev = 1.;
 };
 }

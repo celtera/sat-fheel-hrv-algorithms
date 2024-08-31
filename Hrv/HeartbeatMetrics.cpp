@@ -6,12 +6,29 @@ namespace fheel
 
 void HeartbeatMetrics::startRecording()
 {
-  // TODO
+  // Recreate the accumulators for stats
+  // Global ones
+  std::destroy_at(&accumulators);
+  std::construct_at(&accumulators);
+
+  // Per-sensor
+  for(auto& [name, hb] : this->beats)
+  {
+    std::destroy_at(&hb.accumulators);
+    std::construct_at(&hb.accumulators);
+  }
 }
 
 void HeartbeatMetrics::stopRecording()
 {
-  // TODO
+  inputs.baseline.value = ba::extract::mean(accumulators);
+  global_stddev = std::sqrt(ba::extract::variance(accumulators));
+
+  for(auto& [name, hb] : this->beats)
+  {
+    hb.average = ba::extract::mean(hb.accumulators);
+    hb.stddev = std::sqrt(ba::extract::variance(hb.accumulators));
+  }
 }
 
 void HeartbeatMetrics::addRow(const std::string& name, int bpm)
@@ -29,6 +46,12 @@ void HeartbeatMetrics::addRow(const std::string& name, int bpm)
   auto& hb = it->second;
   auto& vec = hb.data;
   vec.push_back({m_last_point_timestamp, bpm});
+
+  if(inputs.recording)
+  {
+    this->accumulators(bpm);
+    hb.accumulators(bpm);
+  }
 
   computeIndividualMetrics(hb, std::chrono::milliseconds(inputs.window.value));
 
