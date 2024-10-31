@@ -10,14 +10,6 @@ endif()
 
 project(score_addon_hrv LANGUAGES CXX)
 
-FetchContent_Declare(
-  DataFrame
-  GIT_REPOSITORY "https://github.com/hosseinmoein/DataFrame"
-  GIT_TAG        master
-  GIT_PROGRESS   true
-)
-FetchContent_MakeAvailable(DataFrame)
-
 avnd_score_plugin_init(
   BASE_TARGET score_addon_hrv
 )
@@ -38,4 +30,3 @@ avnd_score_plugin_finalize(
 )
 
 target_sources(score_addon_hrv PRIVATE Hrv/armpd.cc)
-target_link_libraries(score_addon_hrv PRIVATE DataFrame)
