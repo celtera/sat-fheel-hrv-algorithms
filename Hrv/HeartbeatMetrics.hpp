@@ -4,7 +4,6 @@
 
 #include <boost/accumulators/statistics.hpp>
 #include <boost/accumulators/statistics/rolling_mean.hpp>
-#include <boost/accumulators/statistics/rolling_variance.hpp>
 #include <boost/circular_buffer.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
@@ -20,22 +19,53 @@ namespace ba = boost::accumulators;
 namespace fheel
 {
 // Structures de données représentant les statistiques
-// qui nous intéressent, par capteur puis globales
+// qui nous intéressent
+
+// Message de Dimitri documentant ses besoins :
+
+// Sortie 1 : Données brutes des capteurs (capteur et BPM)
+// Cette sortie renvoie directement les BPM reçus de chaque capteur.
+
+// Sortie 2 : Écart en pourcentage par rapport à la baseline individuelle
+// Calcule et renvoie l'écart en pourcentage entre le BPM actuel d'un capteur et sa baseline.
+
+// Sortie 3 : Écart en pourcentage par rapport à la moyenne des autres capteurs
+// Calcule la différence en pourcentage entre la déviation d'un capteur par rapport à sa baseline et la moyenne des déviations des autres capteurs.
+
+// Sortie 4 : Synchronie globale (en pourcentage)
+// Calcule et renvoie la synchronie globale des capteurs en pourcentage (100% = synchronie parfaite, 0% = désynchronisation totale).
+
+// Sortie 5
+// Ecart de tout le groupe par rapport à la baseline (en pourcentage) (pour mesurer si les gens sont plus ou moins excités par rapport au debut)
+
+// Sortie 6
+// Valeur de la baseline
 struct excitation
 {
+  // sortie 0, permet d'identifier à quel capteur les métriques d'excitation appartiennent
   std::string name;
+  // sortie 1
+  float bpm{};
+  // sortie 2
+  float percent_of_baseline{};
+  // sortie 3
+  float distance_from_average{};
+  // sortie 6
+  float baseline;
+  // sortie bonus 1
   bool peaking{};
+  // sortie bonus 2
   float peak{};
-  float average{};
-  float variance{};
-  float stddev{};
-  float rmssd{};
 };
 
 struct synchronization
 {
-  float correlation{};
+  // sortie 4 (pourcentage de la population qui sont dans 3 écarts types de la moyenne)
   float deviation{};
+  // sortie 5 (pourcentage moyen de la baseline que chaque capteur capte en ce moment.
+  // Si on a 2 participant, un est à 110 % de sa baseline et l'autre à 100%, on aura une moyenne de 105%
+  float average_percent_of_baseline{};
+  // sortie bonus 3
   float coeff_variation{};
 };
 
@@ -66,7 +96,7 @@ public:
   using bpm = std::pair<timestamp, int>;
 
   using stat_accum
-      = ba::accumulator_set<float, ba::stats<ba::tag::mean, ba::tag::variance>>;
+      = ba::accumulator_set<float, ba::stats<ba::tag::mean>>;
 
   // Structure de donnée interne pour stocker l'information reçue d'un capteur donné
   struct heartbeats
@@ -77,20 +107,20 @@ public:
     struct running_statistics
     {
       std::vector<float> bpms;
-      int count{};
       bool peaking{};
       float peak{};
-      float average{};
-      float variance{};
-      float stddev{};
-      float rmssd{};
+      // This is the percentage of the baseline for the last bpm.
+      // If the current bpm is 66 and the baseline is 60, this would be 1.1 (110%)
+      float current_percent_of_baseline{};
+      float bpm;
     } stats;
 
     // Global statistics from the recording feature
     stat_accum accumulators;
-
-    float average{};
-    float stddev{};
+    // 76 is a good guess for average resting heart rate of a human and we need this value
+    // to be populated. The results won't be very trustworthy until this is populated by the
+    // stopRecording function.
+    float baseline = 76;
   };
 
   // Messages qu'on veut pouvoir traiter depuis Max
@@ -110,13 +140,6 @@ public:
   // Attributs et autres entrées
   struct
   {
-    struct : halp::hslider_f32<"Baseline", halp::range{20., 200., 74.}>
-    {
-      halp_meta(c_name, "baseline")
-      halp_meta(description, "Heart-rate baseline in bpm")
-      halp_flag(class_attribute);
-    } baseline;
-
     struct : halp::hslider_f32<"Ceil", halp::range{1., 4., 1.25}>
     {
       halp_meta(c_name, "ceil")
@@ -127,7 +150,7 @@ public:
     struct : halp::hslider_i32<"Window", halp::irange{1, 10000, 1000}>
     {
       halp_meta(c_name, "window")
-      halp_meta(description, "Time window in ms upon which the analysis is performed")
+      halp_meta(description, "Time window in ms upon which the peaking analysis is performed")
       halp_flag(class_attribute);
     } window;
 
@@ -141,7 +164,7 @@ public:
     struct : halp::val_port<"Recording", bool>
     {
       halp_meta(c_name, "recording")
-      halp_meta(description, "Data will be recorded when this is enabled.")
+      halp_meta(description, "Baseline data will be recorded when this is enabled. To compute the baseline for every sensor, stop the recording.")
       halp_flag(class_attribute);
 
       void update(HeartbeatMetrics& self)
@@ -173,22 +196,15 @@ public:
   // Appelé lorsqu'on reçoit une nouvelle donnée d'un capteur
   void addRow(const std::string& name, int bpm);
 
-  void cleanupOldTimestamps();
-
   // Calcul des métriques d'excitation individuelles
   void computeIndividualMetrics(heartbeats& hb, std::chrono::milliseconds window);
-  void outputIndividualMetrics();
 
   // Calcul des métriques d'excitation du groupe
-  void computeGroupMetrics();
+  synchronization computeGroupMetrics();
 
 private:
   timestamp m_last_point_timestamp{};
   boost::unordered_flat_map<std::string, heartbeats> beats;
-
-  // Global accumulators for mean / variance
   bool is_recording{};
-  stat_accum accumulators;
-  double global_stddev = 1.;
 };
 }
