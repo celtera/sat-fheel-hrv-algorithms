@@ -1,2 +1,4 @@
 # Hrv
-A new and wonderful [ossia score](https://ossia.io) add-on
+Plugin Max pour l'analyse de données de multiples capteurs de fréquence cardiaque.
+
+## Compilation sur windows
