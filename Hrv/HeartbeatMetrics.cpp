@@ -6,12 +6,7 @@ namespace fheel
 
 void HeartbeatMetrics::startRecording()
 {
-  // Recreate the accumulators for stats
-  // Global ones
-  std::destroy_at(&accumulators);
-  std::construct_at(&accumulators);
-
-  // Per-sensor
+  // destruct and reconstruct the accumulators for every sensor.
   for(auto& [name, hb] : this->beats)
   {
     std::destroy_at(&hb.accumulators);
@@ -24,13 +19,9 @@ void HeartbeatMetrics::stopRecording()
 {
   if(is_recording)
   {
-    inputs.baseline.value = ba::extract::mean(accumulators);
-    global_stddev = std::sqrt(ba::extract::variance(accumulators));
-
     for(auto& [name, hb] : this->beats)
     {
-      hb.average = ba::extract::mean(hb.accumulators);
-      hb.stddev = std::sqrt(ba::extract::variance(hb.accumulators));
+      hb.baseline = ba::extract::mean(hb.accumulators);
     }
   }
   is_recording = false;
@@ -59,54 +50,26 @@ void HeartbeatMetrics::addRow(const std::string& name, int bpm)
   }
 
   computeIndividualMetrics(hb, std::chrono::milliseconds(inputs.window.value));
+  auto sync = computeGroupMetrics();
 
   this->outputs.excitation(excitation{
       .name = it->first,
+      .bpm = bpm,
+      .percent_of_baseline = hb.stats.current_percent_of_baseline,
+      .distance_from_average = hb.stats.current_percent_of_baseline - sync.average_percent_of_baseline,
+      .baseline = hb.baseline,
       .peaking = hb.stats.peaking,
       .peak = hb.stats.peak,
-      .average = hb.stats.average,
-      .variance = hb.stats.variance,
-      .stddev = hb.stats.stddev,
-      .rmssd = hb.stats.rmssd,
   });
-  computeGroupMetrics();
-}
-
-void HeartbeatMetrics::cleanupOldTimestamps()
-{
-  for(auto& [name, hb] : beats)
-  {
-    auto& buffer = hb.data;
-    for(auto it = buffer.begin(); it != buffer.end();)
-    {
-      auto& [ts, val] = *it;
-      if(m_last_point_timestamp - ts > default_duration)
-      {
-        it = buffer.erase(it);
-      }
-      else
-      {
-        break;
-      }
-    }
-  }
+  this->outputs.synchronization(sync);
 }
 
 void HeartbeatMetrics::computeIndividualMetrics(
-    heartbeats& hb, std::chrono::milliseconds window)
+    heartbeats& hb)
 {
   auto& stats = hb.stats;
-  double prev_average = stats.average;
-  double prev_stddev = stats.stddev;
-  if(prev_stddev <= 0)
-    prev_stddev = 1.;
   stats.bpms.clear();
-  stats.count = 0;
   stats.peak = 0.;
-  stats.average = 0.;
-  stats.stddev = 0.;
-  stats.rmssd = 0.;
-  stats.variance = 0.;
 
   // Compute basic statistics
   for(auto& [t, bpm] : hb.data)
@@ -114,41 +77,26 @@ void HeartbeatMetrics::computeIndividualMetrics(
     if((this->m_last_point_timestamp - t) < window)
     {
       if(bpm > 0)
-      { // FIXME divide by stddev ? Individual or group ?
-        const float beats = (bpm - inputs.baseline) / 1.;
-        stats.bpms.push_back(beats);
-        stats.average += beats;
-
+      {
+        const float percent_of_baseline = (bpm / hb.baseline);
+        stats.current_distance_from_baseline = percent_of_baseline;
+        stats.bpms.push_back(bpm);
         if(std::abs(beats) > std::abs(stats.peak))
           stats.peak = beats;
       }
     }
   }
 
-  stats.count = stats.bpms.size();
-  if(stats.count <= 1)
-    return;
-
-  stats.average /= stats.count;
-
-  for(float bpm : stats.bpms)
-  {
-    stats.variance += std::pow(bpm - stats.average, 2.f);
-  }
-
-  stats.variance /= stats.count;
-  stats.stddev = std::sqrt(stats.variance);
-
   // Method 1. Compare peak
   const float last_bpm = hb.data.back().second;
   stats.peaking = false;
-  if(last_bpm >= inputs.baseline)
+  if(last_bpm >= hb.baseline)
   {
     // 140 / 74 > 2 ?
-    if(last_bpm / inputs.baseline > inputs.ceil)
+    if(last_bpm / hb.baseline > inputs.ceil)
       stats.peaking = true;
   }
-  else if(last_bpm < inputs.baseline)
+  else if(last_bpm < hb.baseline)
   {
     // Q. pour détection de peak: peut-on vraiment prendre 2 * / 0.5* la baseline?
     // (e.g. être symmétrique par rapport à la lenteur / excitation dans les deux sens)
@@ -156,65 +104,19 @@ void HeartbeatMetrics::computeIndividualMetrics(
     // comme hypothèse
 
     // 50 / 74 < 0.5 ?
-    if(last_bpm / inputs.baseline < 1 / inputs.ceil)
+    if(last_bpm / hb.baseline < 1 / inputs.ceil)
       stats.peaking = true;
   }
-
-  // Method 2. Compute rmssd
-  stats.rmssd = 0.;
-
-#pragma omp simd
-  for(int i = 0; i < stats.count - 1; i++)
-  {
-    // 1. BPM to RR
-    float v0 = 60. * 1000. / stats.bpms[i];
-    float v1 = 60. * 1000. / stats.bpms[i + 1];
-
-    // 2. Mean
-    stats.rmssd += std::pow(v1 - v0, 2);
-  }
-
-  // 3. RMSSD
-  stats.rmssd = std::sqrt(stats.rmssd / (stats.count - 1));
 }
 
-void HeartbeatMetrics::outputIndividualMetrics()
-{
-#if 0 // If we want to output all the participants at once
-    static thread_local std::vector<excitation> exc;
-    exc.clear();
-    exc.reserve(this->beats.size());
-
-    for(auto& [name, hb] : beats)
-    {
-      if(hb.stats.count > 1)
-      {
-        exc.push_back({
-            .name = name,
-            .peak = hb.stats.peak,
-            .average = hb.stats.average,
-            .variance = hb.stats.variance,
-            .stddev = hb.stats.stddev,
-            .rmssd = hb.stats.rmssd,
-        });
-      }
-    }
-
-    if(!exc.empty())
-      this->outputs.excitation(std::move(exc));
-#endif
-}
-
-void HeartbeatMetrics::computeGroupMetrics()
+synchronization HeartbeatMetrics::computeGroupMetrics()
 {
   synchronization sync{};
-  // Method 1. Cross-correlation
-  // TODO
 
   // Method 2. Standard deviation distance
   // 1. Global mean
-  int n = 0;
   int total_samples = 0;
+  // average percent of baseline
   float avg = 0.f;
   float var = 0.f;
   float stddev = 0.f;
@@ -223,14 +125,11 @@ void HeartbeatMetrics::computeGroupMetrics()
   for(auto& [name, b] : beats)
   {
     auto& stats = b.stats;
-    if(stats.count <= 1)
-      continue;
-    total_samples += stats.count;
-    avg += stats.average * stats.count;
-    n++;
+    total_samples ++;
+    avg += stats.current_distance_from_baseline;
   }
 
-  if(n == 0 || total_samples == 0)
+  if(total_samples == 0)
     return;
 
   avg /= total_samples;
@@ -239,35 +138,25 @@ void HeartbeatMetrics::computeGroupMetrics()
   for(auto& [name, b] : beats)
   {
     auto& stats = b.stats;
-    if(stats.count <= 1)
-      continue;
-    for(float bpm : b.stats.bpms)
-    {
-      var += std::pow(bpm - avg, 2.f);
-    }
+    var += std::pow(stats.current_distance_from_baseline - avg, 2.f);
   }
 
-  stddev = std::sqrt(var / n);
+  stddev = std::sqrt(var / total_samples);
 
-  int pop = 0;
+  int pop = total_samples;
   int pop_within_stddev = 0;
   for(auto& [name, hb] : beats)
   {
-    if(hb.stats.count > 1)
+    if(std::abs(hb.stats.current_distance_from_baseline) <= (std::abs(inputs.stddev * stddev) + avg))
     {
-      pop++;
-      if(std::abs(hb.stats.average) <= (std::abs(inputs.stddev * stddev) + avg))
-      {
-        pop_within_stddev++;
-      }
+      pop_within_stddev++;
     }
   }
 
   sync.deviation = float(pop_within_stddev) / float(pop);
-
+  sync.average_distance_frombaseline = avg;
   // Method 3. Coefficient of variation
   sync.coeff_variation = stddev / avg;
-
-  outputs.synchronization(sync);
+  return sync;
 }
 }
