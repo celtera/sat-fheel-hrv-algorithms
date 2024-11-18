@@ -78,7 +78,7 @@ void HeartbeatMetrics::computeIndividualMetrics(
       if(bpm > 0)
       {
         const float percent_of_baseline = (bpm / hb.baseline);
-        stats.current_distance_from_baseline = percent_of_baseline;
+        stats.current_percent_of_baseline = percent_of_baseline;
         stats.bpms.push_back(bpm);
         if(std::abs(beats) > std::abs(stats.peak))
           stats.peak = beats;
@@ -125,7 +125,7 @@ synchronization HeartbeatMetrics::computeGroupMetrics()
   {
     auto& stats = b.stats;
     total_samples ++;
-    avg += stats.current_distance_from_baseline;
+    avg += stats.current_percent_of_baseline;
   }
 
   if(total_samples == 0)
@@ -137,7 +137,7 @@ synchronization HeartbeatMetrics::computeGroupMetrics()
   for(auto& [name, b] : beats)
   {
     auto& stats = b.stats;
-    var += std::pow(stats.current_distance_from_baseline - avg, 2.f);
+    var += std::pow(stats.current_percent_of_baseline - avg, 2.f);
   }
 
   stddev = std::sqrt(var / total_samples);
@@ -146,7 +146,7 @@ synchronization HeartbeatMetrics::computeGroupMetrics()
   int pop_within_stddev = 0;
   for(auto& [name, hb] : beats)
   {
-    if(std::abs(hb.stats.current_distance_from_baseline) <= (std::abs(inputs.stddev * stddev) + avg))
+    if(std::abs(hb.stats.current_percent_of_baseline) <= (std::abs(inputs.stddev * stddev) + avg))
     {
       pop_within_stddev++;
     }
