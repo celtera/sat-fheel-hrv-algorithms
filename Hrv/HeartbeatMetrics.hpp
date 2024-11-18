@@ -45,7 +45,7 @@ struct excitation
   // sortie 0, permet d'identifier à quel capteur les métriques d'excitation appartiennent
   std::string name;
   // sortie 1
-  float bpm{};
+  int bpm{};
   // sortie 2
   float percent_of_baseline{};
   // sortie 3
