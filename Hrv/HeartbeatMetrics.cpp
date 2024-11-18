@@ -129,7 +129,7 @@ synchronization HeartbeatMetrics::computeGroupMetrics()
   }
 
   if(total_samples == 0)
-    return;
+    return sync;
 
   avg /= total_samples;
 

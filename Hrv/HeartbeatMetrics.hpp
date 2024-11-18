@@ -4,6 +4,7 @@
 
 #include <boost/accumulators/statistics.hpp>
 #include <boost/accumulators/statistics/rolling_mean.hpp>
+#include <boost/accumulators/statistics/rolling_variance.hpp>
 #include <boost/circular_buffer.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
@@ -96,7 +97,8 @@ public:
   using bpm = std::pair<timestamp, int>;
 
   using stat_accum
-      = ba::accumulator_set<float, ba::stats<ba::tag::mean>>;
+     = ba::accumulator_set<float, ba::stats<ba::tag::mean, ba::tag::variance>>;
+
 
   // Structure de donnée interne pour stocker l'information reçue d'un capteur donné
   struct heartbeats
