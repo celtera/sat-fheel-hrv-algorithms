@@ -1,3 +1,4 @@
+#include "ext.h"
 #include "HeartbeatMetrics.hpp"
 
 #include <iostream>
