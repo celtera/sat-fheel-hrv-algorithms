@@ -68,6 +68,8 @@ struct synchronization
   float average_percent_of_baseline{};
   // sortie bonus 3
   float coeff_variation{};
+  // sortie bonus 4, écart type.
+  float stddev{};
 };
 
 // Code de l'objet
