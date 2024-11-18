@@ -146,6 +146,8 @@ synchronization HeartbeatMetrics::computeGroupMetrics()
   int pop_within_stddev = 0;
   for(auto& [name, hb] : beats)
   {
+    post("%s %d", name, hb.stats.current_percent_of_baseline);
+    post("std::abs(inputs.stddev * stddev) + avg : abs((%d * %d) + %d = %d", inputs.stddev, stddev, avg, std::abs(inputs.stddev * stddev) + avg);
     if(std::abs(hb.stats.current_percent_of_baseline) <= (std::abs(inputs.stddev * stddev) + avg))
     {
       pop_within_stddev++;
