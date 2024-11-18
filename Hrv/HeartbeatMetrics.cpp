@@ -153,6 +153,7 @@ synchronization HeartbeatMetrics::computeGroupMetrics()
   }
 
   sync.deviation = float(pop_within_stddev) / float(pop);
+  sync.stddev = stddev;
   sync.average_percent_of_baseline = avg;
   // Method 3. Coefficient of variation
   sync.coeff_variation = stddev / avg;
