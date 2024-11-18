@@ -64,7 +64,7 @@ void HeartbeatMetrics::addRow(const std::string& name, int bpm)
 }
 
 void HeartbeatMetrics::computeIndividualMetrics(
-    heartbeats& hb)
+    heartbeats& hb, std::chrono::milliseconds window)
 {
   auto& stats = hb.stats;
   stats.bpms.clear();
