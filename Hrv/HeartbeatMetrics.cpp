@@ -45,7 +45,6 @@ void HeartbeatMetrics::addRow(const std::string& name, int bpm)
 
   if(inputs.recording)
   {
-    this->accumulators(bpm);
     hb.accumulators(bpm);
   }
 
