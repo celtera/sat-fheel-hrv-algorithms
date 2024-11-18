@@ -80,7 +80,7 @@ void HeartbeatMetrics::computeIndividualMetrics(
         const float percent_of_baseline = (bpm / hb.baseline);
         stats.current_percent_of_baseline = percent_of_baseline;
         stats.bpms.push_back(bpm);
-        if(std::abs(beats) > std::abs(stats.peak))
+        if(std::abs(bpm) > std::abs(stats.peak))
           stats.peak = beats;
       }
     }
