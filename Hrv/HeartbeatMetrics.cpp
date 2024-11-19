@@ -1,4 +1,3 @@
-#include "ext.h"
 #include "HeartbeatMetrics.hpp"
 
 #include <iostream>
@@ -147,9 +146,10 @@ synchronization HeartbeatMetrics::computeGroupMetrics()
   int pop_within_stddev = 0;
   for(auto& [name, hb] : beats)
   {
-    post("%s %f", name, hb.stats.current_percent_of_baseline);
-    post("std::abs(inputs.stddev * stddev) + avg : abs((%f * %f) + %f = %f", inputs.stddev, stddev, avg, std::abs(inputs.stddev * stddev) + avg);
-    if(std::abs(hb.stats.current_percent_of_baseline) <= (std::abs(inputs.stddev * stddev) + avg))
+    // py::print(name, hb.stats.current_percent_of_baseline -1);
+    // py::print("std::abs(inputs.stddev * stddev) + avg ", inputs.stddev, stddev, avg-1);
+    // TODO : Make sure these numbers all make sense
+    if(std::abs(hb.stats.current_percent_of_baseline - 1.0) <= (std::abs(inputs.stddev * stddev + (avg - 1))))
     {
       pop_within_stddev++;
     }
