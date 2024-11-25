@@ -1,6 +1,6 @@
 name: CMake build
 
-on: push
+on: [push, pull_request]
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,21 +70,21 @@ jobs:
           curl -L https://raw.githubusercontent.com/ossia/score/master/tools/fetch-sdk.sh > fetch-sdk.sh
           chmod +x ./fetch-sdk.sh
           ./fetch-sdk.sh
-  
+
       - name: Setup Codesigning
         shell: bash
         if: runner.os == 'macOS'
         run: |
           set +x
 
-          security create-keychain -p "$MAC_CODESIGN_KEYCHAIN_PASSWORD" "$MAC_CODESIGN_KEYCHAIN"          
+          security create-keychain -p "$MAC_CODESIGN_KEYCHAIN_PASSWORD" "$MAC_CODESIGN_KEYCHAIN"
           security default-keychain -s "$MAC_CODESIGN_KEYCHAIN"
           security unlock-keychain -p "$MAC_CODESIGN_KEYCHAIN_PASSWORD" "$MAC_CODESIGN_KEYCHAIN"
-      
+
           echo $MAC_CODESIGN_FILE_B64 | base64 --decode > "$HOME/cert.p12"
           security import "$HOME/cert.p12" -k "$MAC_CODESIGN_KEYCHAIN" -P "$MAC_CODESIGN_PASSWORD" -T /usr/bin/codesign  > /dev/null 2>&1
           security set-key-partition-list -S apple-tool:,apple: -s -k "$MAC_CODESIGN_KEYCHAIN_PASSWORD" "$MAC_CODESIGN_KEYCHAIN" > /dev/null 2>&1
-      
+
           rm -rf "$HOME/cert.p12"
 
       - name: Build debug
@@ -145,7 +145,7 @@ jobs:
       - name: Combine
         shell: bash
         run: |
-        
+
           mkdir -p output
           find . -name '*.zip' -exec mv {} output/ \;
           cd output
@@ -158,7 +158,7 @@ jobs:
           zip -r Heartbeat-max.zip Heartbeat
           rm -rf Heartbeat
 
-      - name: Upload 
+      - name: Upload
         uses: xresloader/upload-to-github-release@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
