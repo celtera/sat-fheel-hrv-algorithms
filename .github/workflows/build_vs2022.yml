@@ -1,6 +1,6 @@
 name: VS2022 build
 
-on: push
+on: [push, pull_request]
 
 jobs:
   build:
