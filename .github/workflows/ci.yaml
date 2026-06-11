@@ -1,0 +1,26 @@
+name: Build
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+      - dev
+      - develop
+    tags:
+      - v*
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dev:
+    uses: ossia/actions/.github/workflows/builds-dev.yml@master
+    secrets: inherit
+  sdk:
+    uses: ossia/actions/.github/workflows/builds-sdk.yml@master
+    secrets: inherit
+  jit:
+    uses: ossia/actions/.github/workflows/jit.yml@master
+    secrets: inherit
