@@ -31,10 +31,8 @@ avnd_addon_object(
   CLASS HeartbeatMetrics
   NAMESPACE fheel
   DEPENDENCIES DataFrame
-  SOURCES "Hrv/HeartbeatMetrics.hpp")
+  SOURCES
+    "Hrv/HeartbeatMetrics.hpp"
+    "Hrv/HeartbeatMetrics.cpp")
 
 avnd_addon_finalize(NAME score_addon_hrv UUID 9d9576a9-bbd2-42de-90b0-c6e2c6469f42 VERSION 1)
-
-if(TARGET score_addon_hrv)
-  target_sources(score_addon_hrv PRIVATE Hrv/armpd.cc)
-endif()
