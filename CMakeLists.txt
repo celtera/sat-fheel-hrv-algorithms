@@ -33,12 +33,18 @@ FetchContent_MakeAvailable(DataFrame)
 
 avnd_addon_init(NAME score_addon_hrv)
 
+# Standalone back-ends compile generated sources (in the build tree) that include
+# the object headers by their in-repo path (e.g. <Hrv/HeartbeatMetrics.hpp>); carry
+# the addon root so those resolve. Score builds add it via score's own machinery.
+add_library(hrv_deps INTERFACE)
+target_include_directories(hrv_deps INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
+
 avnd_addon_object(
   BASE score_addon_hrv
   C_NAME heartbeat_metrics
   CLASS HeartbeatMetrics
   NAMESPACE fheel
-  DEPENDENCIES DataFrame
+  DEPENDENCIES DataFrame hrv_deps
   SOURCES
     "Hrv/HeartbeatMetrics.hpp"
     "Hrv/HeartbeatMetrics.cpp")
